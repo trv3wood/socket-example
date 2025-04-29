@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <format>
 
 const int PORT = 8080;
 const int BUFFER_SIZE = 1024;
@@ -40,7 +41,7 @@ void handleClient(ClientInfo* client) {
         if (bytes_read <= 0) {
             if (bytes_read == 0) {
                 std::lock_guard<std::mutex> lock(mtx);
-                std::cout << "客户端 " << client_ip << " 断开连接" << std::endl;
+                std::cout << std::format("客户端 {} 断开连接", client_ip) << std::endl;
             } else {
                 std::lock_guard<std::mutex> lock(mtx);
                 std::cerr << "读取数据错误" << std::endl;
@@ -52,7 +53,7 @@ void handleClient(ClientInfo* client) {
         
         {
             std::lock_guard<std::mutex> lock(mtx);
-            std::cout << "从 " << client_ip << " 收到: " << buffer << std::endl;
+            std::cout << std::format("从 {} 收到: {}", client_ip, buffer) << std::endl;
         }
 
         // 将数据原样返回给客户端
@@ -100,7 +101,7 @@ int main() {
         return 1;
     }
 
-    std::cout << "服务器正在监听端口 " << PORT << "..." << std::endl;
+    std::cout << std::format("服务器正在监听端口 {}...", PORT) << std::endl;
 
     // 存储线程对象
     std::vector<std::thread> threads;
@@ -132,7 +133,7 @@ int main() {
 
             // 如果线程数达到上限，等待
             while (threads.size() >= MAX_THREADS) {
-                std::cout << "达到最大线程数(" << MAX_THREADS << ")，等待..." << std::endl;
+                std::cout << std::format("当前活跃线程数: {}", threads.size()) << std::endl;
                 // 可以在这里添加更复杂的等待逻辑或拒绝新连接
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 
