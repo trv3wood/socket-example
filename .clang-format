@@ -1,0 +1,12 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+
+AllowShortBlocksOnASingleLine: false
+
+AllowShortCaseLabelsOnASingleLine: false
+
+AllowShortFunctionsOnASingleLine: Empty
+
+AllowShortIfStatementsOnASingleLine: false
+
+AllowShortLoopsOnASingleLine: false
