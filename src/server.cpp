@@ -1,51 +1,44 @@
 #include "server.h"
 #include "clientinfo.h"
+#include "threadpool.h"
 
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
-#include <condition_variable>
 #include <cstdlib>
-#include <format>
-#include <mutex>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
-
-// 全局互斥锁，用于保护共享资源
-std::mutex mtx;
-std::condition_variable cv;
 
 const int BUFFER_SIZE = 1024;
 
 Server::Server()
     : m_port(8080), m_thread_limit(std::thread::hardware_concurrency()),
-      m_server_fd(-1), m_logger(spdlog::default_logger_raw()) {
+      m_server_fd(-1), m_logger(spdlog::default_logger_raw()),
+      m_threadPool(new ThreadPool(m_thread_limit)) {
     setupSocket();
 }
 
 Server::Server(int port, unsigned limit)
     : m_port(port),
       m_thread_limit(std::min(limit, std::thread::hardware_concurrency())),
-      m_server_fd(-1), m_logger(spdlog::default_logger_raw()) {
+      m_server_fd(-1), m_logger(spdlog::default_logger_raw()),
+      m_threadPool(new ThreadPool(m_thread_limit)) {
     setupSocket();
 }
 
 Server::~Server() {
-    // 等待所有线程完成
-    for (auto &threadInfo : m_threads) {
-        if (std::thread &t = threadInfo.thread; t.joinable()) {
-            t.join();
-        }
-    }
+    delete m_threadPool;
     close(m_server_fd);
     m_logger->info("服务器关闭");
     spdlog::drop_all(); // 清理所有日志
 }
 
-Server &Server::setupSocket() {
+void Server::setupSocket() {
     // 创建socket
     m_server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (m_server_fd < 0) {
@@ -78,108 +71,86 @@ Server &Server::setupSocket() {
     }
 
     m_logger->info("服务器正在监听端口 {}", m_port);
-    return *this;
 }
 
+void Server::stop() {
+    m_running = false;
+    // 关闭监听socket以唤醒accept
+    shutdown(m_server_fd, SHUT_RDWR);
+
+    // 关闭所有客户端socket
+    std::lock_guard<std::mutex> lock(m_mtx);
+    for (int sock : client_sockets) {
+        shutdown(sock, SHUT_RDWR);
+    }
+}
 void Server::run() {
-    for (;;) {
-        // 接受客户端连接
-        ClientInfo client;
-        socklen_t addr_len = sizeof(client.address);
-        client.socket =
-            accept(m_server_fd, (struct sockaddr *)&client.address, &addr_len);
+    // 设置监听socket为非阻塞
+    fcntl(m_server_fd, F_SETFL, O_NONBLOCK);
+    struct timeval tv;
+    while (m_running) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(m_server_fd, &read_fds);
 
-        if (client.socket < 0) {
-            m_logger->error("接受连接失败");
-            continue;
-        }
+        tv.tv_sec = 1; // 1秒超时
+        tv.tv_usec = 0;
 
-        cleanupThreads();
-        // 创建线程处理客户端
-        try {
-            m_threads.emplace_back();
-            auto &threadInfo = m_threads.back();
-            threadInfo.thread = std::thread([this, &client, &threadInfo]() {
-                this->worker(threadInfo, client);
-                // 线程完成后通知主线程
-                threadInfo.finished = true;
-                this->infoThreads();
-                cv.notify_one();
-            });
+        int activity = select(m_server_fd + 1, &read_fds, NULL, NULL, &tv);
 
-        } catch (const std::exception &e) {
-            m_logger->error("创建线程失败: {}", e.what());
-            close(client.socket);
-        }
-        // 如果线程数达到上限，等待
-        while (m_threads.size() > m_thread_limit) {
-            std::unique_lock lock(mtx);
-            cv.wait(lock, [this]() {
-                return std::any_of(
-                    m_threads.begin(), m_threads.end(),
-                    [](const ThreadInfo &t) { return t.finished; });
-            });
-            cleanupThreads();
-        }
-    }
-}
-
-// 线程函数，处理客户端连接
-void Server::worker(ThreadInfo &threadInfo, const ClientInfo &client) {
-    char buffer[BUFFER_SIZE] = {0};
-    char client_ip[INET_ADDRSTRLEN];
-
-    inet_ntop(AF_INET, &(client.address.sin_addr), client_ip, INET_ADDRSTRLEN);
-
-    std::ostringstream thread_id_stream;
-    thread_id_stream << std::this_thread::get_id();
-    m_logger->info("线程 {} 处理客户端: {}", thread_id_stream.str(), client_ip);
-
-    while (true) {
-        // 读取客户端数据
-        int bytes_read = read(client.socket, buffer, BUFFER_SIZE - 1);
-
-        if (bytes_read <= 0) {
-            m_logger->info("客户端 {} 断开连接", client_ip);
+        if (activity < 0 && errno != EINTR) {
+            m_logger->error("select错误");
             break;
         }
+        if (FD_ISSET(m_server_fd, &read_fds)) {
+            ClientInfo client;
+            socklen_t addr_len = sizeof(client.address);
+            client.socket =
+                accept(m_server_fd, (sockaddr *)&client.address, &addr_len);
 
-        buffer[bytes_read - 1] = '\0';
-        m_logger->info("从 {} 收到: {}, {} bytes", client_ip, buffer,
-                       bytes_read);
+            if (client.socket >= 0) {
+                // 记录客户端socket
+                {
+                    std::lock_guard<std::mutex> lock(m_mtx);
+                    client_sockets.insert(client.socket);
+                }
+                m_logger->info("新客户端连接: {}",
+                               inet_ntoa(client.address.sin_addr));
 
-        // 将数据原样返回给客户端
-        if (send(client.socket, buffer, bytes_read, 0) < 0) {
-            m_logger->error("发送数据失败");
-            break;
-        }
-    }
+                // 设置客户端socket为非阻塞
+                fcntl(client.socket, F_SETFL, O_NONBLOCK);
 
-    // 关闭客户端socket
-    close(client.socket);
-}
+                m_threadPool->enqueue([this, client]() {
+                    while (m_running) {
+                        char buffer[BUFFER_SIZE];
+                        int bytes_read =
+                            read(client.socket, buffer, sizeof(buffer) - 1);
 
-// 清理已完成的线程
-void Server::cleanupThreads() {
-    for (auto it = m_threads.begin(); it != m_threads.end();) {
-        if (it->finished) {
-            if (it->thread.joinable()) {
-                it->thread.join(); // 必须join才能安全销毁
+                        if (bytes_read > 0) {
+                            buffer[bytes_read] = '\0';
+                            send(client.socket, buffer, bytes_read, 0);
+                        } else if (bytes_read == 0 ||
+                                   (errno != EAGAIN && errno != EWOULDBLOCK)) {
+                            break;
+                        }
+
+                        // 添加定期退出检查
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(100));
+                    }
+
+                    // 关闭时移除socket记录
+                    {
+                        std::lock_guard<std::mutex> lock(m_mtx);
+                        client_sockets.erase(client.socket);
+                    }
+                    m_logger->info("关闭客户端连接: {}",
+                                   inet_ntoa(client.address.sin_addr));
+                    close(client.socket);
+                });
             }
-            it = m_threads.erase(it); // 从列表中移除
-        } else {
-            ++it;
         }
     }
-}
 
-void Server::infoThreads() const {
-    for (const auto &threadInfo : m_threads) {
-        m_logger->info("线程 {} 状态: {}",
-                       std::format("{:x}", std::hash<std::thread::id>{}(
-                                               threadInfo.thread.get_id())),
-                       threadInfo.finished ? "完成" : "运行中");
-    }
-    m_logger->info("当前线程数: {}, 最大线程数: {}", m_threads.size(),
-                   m_thread_limit);
+    close(m_server_fd);
 }
