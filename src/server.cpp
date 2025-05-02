@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
@@ -17,18 +18,28 @@
 const int BUFFER_SIZE = 1024;
 
 Server::Server()
-    : m_port(8080), m_thread_limit(std::thread::hardware_concurrency()),
+    : m_port(21), m_thread_limit(std::thread::hardware_concurrency() * 2),
       m_server_fd(-1), m_logger(spdlog::default_logger_raw()),
       m_threadPool(new ThreadPool(m_thread_limit)) {
     setupSocket();
+#if SOCKETEXAMPLE_DEBUG
+    m_logger->set_level(spdlog::level::info);
+#else
+    m_logger->set_level(spdlog::level::warn);
+#endif
 }
 
 Server::Server(int port, unsigned limit)
     : m_port(port),
-      m_thread_limit(std::min(limit, std::thread::hardware_concurrency())),
+      m_thread_limit(std::min(limit, std::thread::hardware_concurrency()) * 2),
       m_server_fd(-1), m_logger(spdlog::default_logger_raw()),
       m_threadPool(new ThreadPool(m_thread_limit)) {
     setupSocket();
+#if SOCKETEXAMPLE_DEBUG
+    m_logger->set_level(spdlog::level::info);
+#else
+    m_logger->set_level(spdlog::level::warn);
+#endif
 }
 
 Server::~Server() {
@@ -88,13 +99,12 @@ void Server::run() {
     // 设置监听socket为非阻塞
     fcntl(m_server_fd, F_SETFL, O_NONBLOCK);
     struct timeval tv;
+    tv.tv_sec = 1; // 1秒超时
+    tv.tv_usec = 0;
     while (m_running) {
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(m_server_fd, &read_fds);
-
-        tv.tv_sec = 1; // 1秒超时
-        tv.tv_usec = 0;
 
         int activity = select(m_server_fd + 1, &read_fds, NULL, NULL, &tv);
 
@@ -127,16 +137,18 @@ void Server::run() {
                             read(client.socket, buffer, sizeof(buffer) - 1);
 
                         if (bytes_read > 0) {
-                            buffer[bytes_read] = '\0';
-                            send(client.socket, buffer, bytes_read, 0);
+                            m_logger->debug("接收到来自 {} 的数据: {}",
+                                            inet_ntoa(client.address.sin_addr),
+                                            std::string(buffer, bytes_read));
+                            const char *response = "HTTP/1.1 200 OK\r\n"
+                                                   "Content-Length: 12\r\n"
+                                                   "\r\n"
+                                                   "Hello World!";
+                            send(client.socket, response, strlen(response), 0);
                         } else if (bytes_read == 0 ||
                                    (errno != EAGAIN && errno != EWOULDBLOCK)) {
                             break;
                         }
-
-                        // 添加定期退出检查
-                        std::this_thread::sleep_for(
-                            std::chrono::milliseconds(100));
                     }
 
                     // 关闭时移除socket记录

@@ -10,3 +10,5 @@ AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: false
 
 AllowShortLoopsOnASingleLine: false
+
+AccessModifierOffset: -3

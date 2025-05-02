@@ -2,19 +2,19 @@
 #include "threadpool.h"
 #include <atomic>
 #include <mutex>
-#include <spdlog/logger.h>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <unordered_set>
 
 class Server {
-  public:
+ public:
     Server();
-    Server(int port, unsigned limit = std::thread::hardware_concurrency());
+    Server(int port, unsigned limit = std::thread::hardware_concurrency() * 2);
     ~Server();
     void run();
     void stop();
 
-  private:
+ private:
     void setupSocket();
     int m_server_fd;
     unsigned int m_thread_limit;

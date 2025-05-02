@@ -5,7 +5,7 @@
 #include <queue>
 #include <thread>
 class ThreadPool {
-  public:
+ public:
     ThreadPool(int numThreads);
     ~ThreadPool();
 
@@ -28,7 +28,7 @@ class ThreadPool {
         return res;
     }
 
-  private:
+ private:
     std::vector<std::thread> m_workers;
     std::queue<std::function<void()>> m_tasks;
     std::mutex m_mutex;
