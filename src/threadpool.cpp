@@ -10,9 +10,7 @@ ThreadPool::ThreadPool(int numThreads) : m_stop(false) {
                     this->m_condition.wait(lock, [this] {
                         return this->m_stop || !this->m_tasks.empty();
                     });
-                    if (this->m_stop && this->m_tasks.empty()) {
-                        return;
-                    }
+                    if (this->m_stop && this->m_tasks.empty()) { return; }
                     task = std::move(this->m_tasks.front());
                     this->m_tasks.pop();
                 }
@@ -28,7 +26,5 @@ ThreadPool::~ThreadPool() {
         m_stop = true;
     }
     m_condition.notify_all();
-    for (std::thread &worker : m_workers) {
-        worker.join();
-    }
+    for (std::thread &worker : m_workers) { worker.join(); }
 }

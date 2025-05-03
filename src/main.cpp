@@ -7,7 +7,7 @@ const int PORT = 21; // 服务器端口
 #endif
 
 int main() {
-    Server server(PORT);
+    Server server(PORT, 4);
     std::jthread t([&server]() { server.run(); });
     std::string command;
     while (std::cin >> command) {
@@ -18,4 +18,5 @@ int main() {
             break;
         }
     }
+    spdlog::drop_all(); // 清理所有日志
 }

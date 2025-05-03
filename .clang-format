@@ -1,14 +1,14 @@
 BasedOnStyle: LLVM
 IndentWidth: 4
 
-AllowShortBlocksOnASingleLine: false
+AllowShortBlocksOnASingleLine: true
 
-AllowShortCaseLabelsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
 
-AllowShortFunctionsOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: true
 
-AllowShortIfStatementsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: true
 
-AllowShortLoopsOnASingleLine: false
+AllowShortLoopsOnASingleLine: true
 
 AccessModifierOffset: -3
