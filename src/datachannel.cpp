@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
 
 void DataChannel::setup() {
     m_server_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -30,6 +31,7 @@ DataChannel::~DataChannel() {
 void DataChannel::reset() {
     spdlog::debug("重置数据通道");
     close(m_server_sock);
+    close(m_data_sock);
     m_server_sock = -1;
     m_addr = {AF_INET, 0, INADDR_ANY};
     m_conn_mode = INACTIVE;

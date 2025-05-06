@@ -100,7 +100,6 @@ void ClientSession::processCommand(const std::string &raw_cmd) {
             }
             break;
         }
-        m_data_channel.reset();
         m_state = AUTHENTICATED;
         break;
     }
@@ -166,6 +165,7 @@ void ClientSession::handleList(const CommandArgs &args) {
     spdlog::debug("接受数据连接: {}", m_data_channel.m_data_sock);
     ssize_t bytes_sent = send(m_data_channel.m_data_sock, list_data.c_str(),
                               list_data.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+    m_data_channel.reset();
     Response::sendResponse(m_ctrcl_socket, Response::CLOSEDATACONN);
 }
 bool ClientSession::setWorkingDir(std::string &&path) {
@@ -206,6 +206,7 @@ void ClientSession::handleRetr(const CommandArgs &args) {
     }
     spdlog::debug("接受数据连接: {}", m_data_channel.m_data_sock);
     sendfile(m_data_channel.m_data_sock, file_fd, nullptr, BUFSIZ);
+    m_data_channel.reset();
     close(file_fd);
     Response::sendResponse(m_ctrcl_socket, Response::CLOSEDATACONN);
 }
