@@ -34,3 +34,6 @@ void DataChannel::reset() {
     m_addr = {AF_INET, 0, INADDR_ANY};
     m_conn_mode = INACTIVE;
 }
+DataChannel::DataChannel(int ctrcl_socket) : m_ctrcl_socket(ctrcl_socket) {
+    spdlog::debug("DataChannel创建");
+}

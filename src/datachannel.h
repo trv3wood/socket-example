@@ -5,13 +5,17 @@
 #include <unistd.h>
 class DataChannel {
  public:
-    DataChannel() { spdlog::debug("DataChannel创建"); }
+    DataChannel(int ctrcl_socket);
+    DataChannel(const DataChannel &) = delete;
+    DataChannel(DataChannel &&) = default;
+    DataChannel &operator=(const DataChannel &) = delete;
     void setup();
     int port() const;
     void reset();
 
     ~DataChannel();
 
+    const int m_ctrcl_socket = -1; // 控制连接socket
     int m_server_sock = -1;
     int m_data_sock = -1;                       // 数据连接socket
     sockaddr_in m_addr{AF_INET, 0, INADDR_ANY}; // 数据连接地址
